@@ -92,11 +92,17 @@ def create_overlapping_chunks(
             if len(qa_pairs) == 0:
                 continue
             
-            # Create chunks with sliding window
+            # FIXED: Create chunks with sliding window, ensuring we get MORE chunks than basic
+            # Strategy: Create overlapping windows, but also ensure we don't skip any pairs
             start_idx = 0
             while start_idx < len(qa_pairs):
                 end_idx = min(start_idx + window_size, len(qa_pairs))
                 window_pairs = qa_pairs[start_idx:end_idx]
+                
+                # FIXED: Always create a chunk, even if window is smaller than window_size
+                # This ensures we don't lose any pairs
+                if len(window_pairs) == 0:
+                    break
                 
                 # Combine Q+A pairs in window
                 combined_content = []
@@ -146,8 +152,17 @@ def create_overlapping_chunks(
                 chunks.append(chunk)
                 chunk_id += 1
                 
-                # Move window (with overlap)
-                start_idx += window_size - overlap
+                # FIXED: Move window with smaller step to create more chunks
+                # If we're at the end, break to avoid infinite loop
+                if start_idx + window_size - overlap >= len(qa_pairs):
+                    # Create one more chunk with remaining pairs if any
+                    if end_idx < len(qa_pairs):
+                        start_idx = end_idx
+                    else:
+                        break
+                else:
+                    # Move window (with overlap) - smaller step creates more chunks
+                    start_idx += window_size - overlap
     
     return chunks
 

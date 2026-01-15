@@ -28,8 +28,8 @@ ENHANCED_SEARCH_CONFIG = {
     "groq_api_key": os.getenv("GROQ_API_KEY"),  # FIXED: Removed GROK_API_KEY typo
     "groq_model": "llama-3.1-8b-instant",  # Current models: llama-3.1-8b-instant, llama-3.1-70b-versatile, mixtral-8x7b-32768
     "chunking_strategy": "overlapping",  # "basic", "overlapping", "hierarchical", "enriched"
-    "overlap_window_size": 3,
-    "overlap_size": 1,
+    "overlap_window_size": 2,  # FIXED: Reduced from 3 to 2 to create more chunks
+    "overlap_size": 1,  # Overlap of 1 pair between windows
     "force_reindex": os.getenv("FORCE_REINDEX", "false").lower() == "true",  # Force re-indexing
 }
 
