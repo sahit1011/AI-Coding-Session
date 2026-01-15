@@ -1,11 +1,12 @@
 """
 Enhanced Chunking Strategies for Better RAG Performance.
 
-Improvements:
-1. Overlapping chunks for context preservation
-2. Hierarchical chunking (session-level summaries)
-3. Context enrichment (surrounding Q+A pairs)
-4. Semantic boundary detection
+Available strategies:
+1. Overlapping (RECOMMENDED for agent sessions) - Preserves conversation context
+2. Hierarchical - Multi-level (fine + coarse chunks)
+3. Enriched - Q+A pairs with surrounding context
+
+Default: Overlapping (optimal for agent session retrieval)
 """
 
 from typing import List, Dict, Any, Tuple
