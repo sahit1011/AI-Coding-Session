@@ -508,6 +508,250 @@ cd backend && python main.py
 - Rate limiting requires slowapi package
 - Redis is optional but recommended for production
 
+## 🚀 Future Enhancements (Post-MVP)
+
+### 1. Knowledge Graph Integration ⭐
+
+**Why Knowledge Graphs?**
+A knowledge graph would significantly enhance retrieval by modeling relationships between entities:
+
+**Entities to Model:**
+- **Engineers** (Andrew, Daniel, Diana)
+- **Projects** (video-encoder, video-ingester, etc.)
+- **Technologies** (Python, Go, React, WebRTC, S3, etc.)
+- **Concepts** (encoding, streaming, error handling, etc.)
+- **Code Patterns** (multipart upload, retry logic, etc.)
+
+**Relationships:**
+- `Engineer -[works_on]-> Project`
+- `Project -[uses]-> Technology`
+- `Engineer -[discussed]-> Concept`
+- `Concept -[related_to]-> Concept` (e.g., "encoding" ↔ "compression")
+- `Session -[about]-> Concept`
+
+**Benefits:**
+1. **Multi-hop Reasoning**: "What did Andrew discuss about video encoding?" → Query engineer → project → concept relationships
+2. **Better Context**: Understand that "S3 upload" and "multipart upload" are related concepts
+3. **Entity-aware Retrieval**: Find results based on entity relationships, not just text similarity
+4. **Query Understanding**: "Show me all discussions about technologies used in video-encoder" → Traverse graph
+5. **Recommendations**: "Similar sessions" based on graph structure, not just embeddings
+
+**Implementation Approach:**
+```python
+# Extract entities from chunks
+entities = {
+    "engineers": ["andrewwang", "daniellin", "dianalu"],
+    "projects": ["video-encoder", "video-ingester"],
+    "technologies": ["Python", "Go", "React", "S3", "WebRTC"],
+    "concepts": ["encoding", "streaming", "error handling"]
+}
+
+# Build graph (using NetworkX or Neo4j)
+graph.add_edge("andrewwang", "video-encoder", relation="works_on")
+graph.add_edge("video-encoder", "Python", relation="uses")
+graph.add_edge("andrewwang", "encoding", relation="discussed")
+```
+
+**Hybrid Retrieval with KG:**
+1. Vector search finds semantically similar chunks
+2. Knowledge graph finds related entities
+3. Combine results for better coverage
+4. Example: Query "video encoding" → Vector finds chunks + Graph finds all encoding-related discussions across projects
+
+**Tools to Consider:**
+- **Neo4j**: Full-featured graph database
+- **NetworkX**: Python graph library (lighter weight)
+- **LangChain Graph**: Built-in graph support
+- **SPARQL**: If using RDF/OWL
+
+**Trade-offs:**
+- ✅ Better relationship understanding
+- ✅ Multi-hop reasoning capabilities
+- ✅ Entity-aware search
+- ⚠️ Additional complexity
+- ⚠️ Requires entity extraction (NER)
+- ⚠️ Graph construction overhead
+- ⚠️ More storage requirements
+
+**Recommendation**: Start with simple entity extraction and relationship modeling, then scale to full graph if needed.
+
+### 2. Conversation Context View
+
+- Click on search result to see full session conversation
+- Expandable context windows
+- Thread navigation (previous/next messages)
+- Code block highlighting within conversations
+
+### 3. Advanced Chunking Strategies
+
+- **Semantic Chunking**: Use embeddings to find natural boundaries
+- **Code-aware Chunking**: Separate code blocks from text
+- **Hierarchical Chunking**: Multi-level (document → section → paragraph)
+- **Adaptive Chunking**: Dynamic size based on content type
+
+### 4. Multi-Modal Search
+
+- Search across code snippets, documentation, and conversations
+- Code-to-code similarity (using CodeBERT)
+- Visual code search (AST-based matching)
+- Unified search interface
+
+### 5. Query Understanding & Intent Classification
+
+- Classify queries: "how-to", "debugging", "optimization", "architecture"
+- Route to specialized retrieval strategies
+- Intent-aware reranking
+- Query suggestions based on intent
+
+### 6. Learning from User Feedback
+
+- Click-through rate tracking
+- Relevance feedback (thumbs up/down)
+- Fine-tune embeddings based on user interactions
+- A/B testing framework for retrieval strategies
+
+### 7. Advanced Analytics
+
+- Most searched topics dashboard
+- Engineer expertise mapping
+- Project knowledge gaps identification
+- Trending technologies/concepts
+- Search pattern analysis
+
+### 8. Real-time Updates
+
+- Watch for new sessions and auto-index
+- Incremental embedding updates
+- Live search results as new data arrives
+- WebSocket support for real-time updates
+
+### 9. Code-Specific Features
+
+- Syntax highlighting in results
+- Code diff visualization
+- "Show me similar code patterns"
+- Code snippet extraction and search
+- Language-specific search (Python vs Go vs TypeScript)
+
+### 10. Enterprise Features
+
+- Authentication & authorization
+- Team-specific search (private sessions)
+- Export search results (PDF, CSV)
+- Search history and saved searches
+- Collaborative annotations on results
+
+## 💡 Knowledge Graph Deep Dive
+
+### Why Knowledge Graphs for This Use Case?
+
+**Current Limitations:**
+- Vector search finds semantically similar text but doesn't understand relationships
+- "Andrew's video encoding work" requires filtering, not relationship traversal
+- Can't answer: "What technologies did Diana use in her React projects?"
+
+**How KG Would Help:**
+
+1. **Entity Resolution**: 
+   - "Andrew" = "andrewwang" = "Staff Backend Engineer"
+   - "S3" = "AWS S3" = "multipart upload"
+   - Normalize entities across different mentions
+
+2. **Relationship Queries**:
+   ```
+   Query: "Show me all discussions about technologies used in video-encoder"
+   → Traverse: video-encoder -[uses]-> [Python, FastAPI, Celery]
+   → Find: All sessions discussing these technologies
+   → Filter: Only sessions related to video-encoder project
+   ```
+
+3. **Concept Linking**:
+   - "memory optimization" ↔ "buffer pools" ↔ "RAM management"
+   - Graph connects related concepts even if they use different terminology
+
+4. **Temporal Relationships**:
+   - Track how discussions evolve over time
+   - "Earlier sessions discussed X, later sessions discussed Y"
+   - Identify knowledge progression
+
+### Implementation Strategy
+
+**Phase 1: Entity Extraction**
+```python
+# Extract entities from chunks
+import spacy
+nlp = spacy.load("en_core_web_sm")
+
+def extract_entities(chunk):
+    doc = nlp(chunk["content"])
+    return {
+        "engineers": [chunk["engineer_username"]],
+        "projects": [chunk["project_name"]],
+        "technologies": extract_technologies(doc),
+        "concepts": extract_concepts(doc)
+    }
+```
+
+**Phase 2: Graph Construction**
+```python
+import networkx as nx
+
+graph = nx.MultiDiGraph()
+
+# Add nodes
+graph.add_node("andrewwang", type="engineer")
+graph.add_node("video-encoder", type="project")
+graph.add_node("Python", type="technology")
+
+# Add relationships
+graph.add_edge("andrewwang", "video-encoder", relation="works_on")
+graph.add_edge("video-encoder", "Python", relation="uses")
+```
+
+**Phase 3: Hybrid Retrieval**
+```python
+def search_with_kg(query):
+    # Vector search
+    vector_results = vector_search(query)
+    
+    # Extract entities from query
+    query_entities = extract_entities(query)
+    
+    # Graph traversal
+    related_entities = graph.traverse(query_entities)
+    
+    # Find chunks related to graph entities
+    graph_results = find_chunks_by_entities(related_entities)
+    
+    # Combine and rerank
+    return combine_results(vector_results, graph_results)
+```
+
+**Phase 4: Query Understanding**
+```python
+# "What did Andrew discuss about encoding?"
+# Parse: engineer=Andrew, concept=encoding
+# Traverse: Andrew -[discussed]-> encoding
+# Retrieve: All chunks in this relationship path
+```
+
+### Tools & Libraries
+
+- **Neo4j**: Production graph database with Cypher query language
+- **NetworkX**: Python graph library (good for prototyping)
+- **LangChain Graph**: Built-in graph support for RAG
+- **spaCy**: Named Entity Recognition (NER)
+- **spaCy Transformers**: Better NER with transformer models
+
+### Expected Improvements
+
+- **+15-20% Precision**: Better entity matching
+- **+25-30% Recall**: Find related concepts through graph
+- **Better Query Understanding**: Multi-hop reasoning
+- **Richer Context**: Relationship-aware retrieval
+
+**Recommendation**: Start with simple entity extraction and relationship modeling. If the dataset grows or queries become more complex, invest in full knowledge graph infrastructure.
+
 ## 📝 License
 
 MIT
