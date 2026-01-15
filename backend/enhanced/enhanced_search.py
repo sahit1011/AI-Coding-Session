@@ -255,12 +255,14 @@ class EnhancedSearchEngine:
             self.chunk_ids.append(chunk["id"])
         
         # Generate vector embeddings
-        # FIXED: Generate and store embeddings without keeping all in memory
+        # FIXED: Normalize embeddings for proper cosine distance calculation
+        # Without normalization, cosine distance can exceed 1.0, causing negative similarity scores
         print("Generating vector embeddings...")
         embeddings = self.embedding_model.encode(
             self.documents,
             show_progress_bar=True,
-            convert_to_numpy=True
+            convert_to_numpy=True,
+            normalize_embeddings=True  # FIXED: Normalize for cosine distance
         ).tolist()
         
         # Store in persistent ChromaDB
@@ -421,8 +423,12 @@ Do not include explanations, just the expanded query."""
         
         Returns: List of (chunk_id, score) tuples
         """
-        # Generate query embedding
-        query_embedding = self.embedding_model.encode(query, convert_to_numpy=True).tolist()
+        # Generate query embedding (normalized for cosine distance)
+        query_embedding = self.embedding_model.encode(
+            query, 
+            convert_to_numpy=True,
+            normalize_embeddings=True  # FIXED: Normalize for proper cosine distance
+        ).tolist()
         
         # Build where clause for filtering
         where_clause = None

@@ -148,7 +148,12 @@ class SearchEngine:
         
         # Generate embeddings and add to collection
         print("Generating embeddings...")
-        embeddings = self.model.encode(documents, show_progress_bar=True).tolist()
+        # FIXED: Normalize embeddings for proper cosine distance calculation
+        embeddings = self.model.encode(
+            documents, 
+            show_progress_bar=True,
+            normalize_embeddings=True  # Normalize for cosine distance
+        ).tolist()
         
         # Add in batches (ChromaDB handles this well, but let's be safe)
         batch_size = 100
@@ -204,7 +209,11 @@ class SearchEngine:
             where_clause = {"$and": where_conditions}
         
         # Generate query embedding
-        query_embedding = self.model.encode(query).tolist()
+        # FIXED: Normalize query embedding for proper cosine distance
+        query_embedding = self.model.encode(
+            query,
+            normalize_embeddings=True  # Normalize for cosine distance
+        ).tolist()
         
         # Search ChromaDB
         results = self.collection.query(
