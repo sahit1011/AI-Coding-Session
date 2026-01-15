@@ -1,0 +1,17 @@
+fastapi==0.109.0
+uvicorn==0.27.0
+pydantic==2.5.3
+sentence-transformers==2.2.2
+chromadb==0.4.22
+python-multipart==0.0.6
+rank-bm25==0.2.2
+nltk==3.9.2
+numpy>=1.24.0
+requests>=2.31.0
+torch>=2.0.0
+transformers>=4.30.0
+
+# FIXED: Added for new features
+redis>=5.0.0  # Caching layer
+slowapi>=0.1.9  # Rate limiting
+
