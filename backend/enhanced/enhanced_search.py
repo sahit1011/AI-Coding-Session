@@ -1,13 +1,13 @@
 """
-Enhanced RAG Pipeline with Hybrid Search, Reranking, and Query Expansion.
+Enhanced RAG Pipeline with Hybrid Search, Reranking, Query Expansion, and Knowledge Graph.
 
 Improvements:
-1. Hybrid Search: BM25 (keyword) + Vector (semantic)
+1. Hybrid Search: BM25 (keyword) + Vector (semantic) + Knowledge Graph (entity-aware)
 2. Cross-Encoder Reranking: Better final ranking
 3. LLM-based Query Expansion: Groq API for intelligent expansion (free tier available)
 4. Multi-Stage Retrieval: Coarse-to-fine approach
 5. Persistent ChromaDB: No re-indexing on restart
-6. Domain-Specific Embeddings: CodeBERT for coding conversations
+6. Knowledge Graph: Entity extraction and relationship-based retrieval
 """
 
 import time
@@ -25,11 +25,12 @@ from chromadb import PersistentClient
 
 class EnhancedSearchEngine:
     """
-    Enhanced search engine with hybrid search and reranking.
+    Enhanced search engine with hybrid search, reranking, and knowledge graph.
     
     Combines:
     - BM25 for keyword matching
     - Vector search for semantic similarity
+    - Knowledge Graph for entity-aware retrieval
     - Cross-encoder reranking for final ordering
     """
     
@@ -164,6 +165,11 @@ class EnhancedSearchEngine:
         self.metadatas: List[Dict[str, Any]] = []
         # self.embeddings: List[List[float]] = []  # ← Removed to save memory
         self.chunk_ids: List[str] = []
+        
+        # Knowledge Graph for entity-aware retrieval
+        from enhanced.knowledge_graph import KnowledgeGraph
+        self.knowledge_graph = KnowledgeGraph()
+        self.use_knowledge_graph = True  # Enable by default
     
     def index_chunks(self, chunks: List[Dict[str, Any]], force_reindex: bool = False) -> None:
         """
@@ -200,6 +206,15 @@ class EnhancedSearchEngine:
             
             print(f"✓ Loaded {len(self.chunk_ids)} chunks from persistent storage")
             print(f"  Embeddings kept in ChromaDB (memory efficient)")
+            
+            # Build knowledge graph from loaded chunks
+            if self.use_knowledge_graph:
+                chunk_dicts = [
+                    {"id": cid, "content": doc, **meta}
+                    for cid, doc, meta in zip(self.chunk_ids, self.documents, self.metadatas)
+                ]
+                self.knowledge_graph.build_from_chunks(chunk_dicts)
+            
             return
         
         print(f"Indexing {len(chunks)} chunks with hybrid search...")
@@ -267,6 +282,10 @@ class EnhancedSearchEngine:
         print("Building BM25 index...")
         self.tokenized_docs = [self._tokenize(doc) for doc in self.documents]
         self.bm25 = BM25Okapi(self.tokenized_docs)
+        
+        # Build Knowledge Graph
+        if self.use_knowledge_graph:
+            self.knowledge_graph.build_from_chunks(chunks)
         
         elapsed = time.time() - start_time
         print(f"✓ Indexed {len(chunks)} chunks in {elapsed:.2f}s (saved to persistent storage)")
@@ -530,6 +549,66 @@ Do not include explanations, just the expanded query."""
         sorted_results = sorted(combined.items(), key=lambda x: -x[1])[:k]
         return sorted_results
     
+    def _combine_scores_with_graph(
+        self,
+        vector_results: List[Tuple[int, float]],
+        bm25_results: List[Tuple[int, float]],
+        graph_results: List[Dict[str, Any]],
+        k: int
+    ) -> List[Tuple[int, float]]:
+        """
+        Combine vector, BM25, and knowledge graph scores.
+        
+        Weights:
+        - Vector: hybrid_weight * 0.8 (80% of hybrid weight)
+        - BM25: (1 - hybrid_weight) * 0.8 (80% of hybrid weight)
+        - Graph: 0.2 (20% boost for entity matches)
+        """
+        # Create score dictionaries
+        vector_scores = {idx: score for idx, score in vector_results}
+        bm25_scores = {idx: score for idx, score in bm25_results}
+        
+        # Create graph scores dictionary (map chunk_id to score)
+        graph_scores = {}
+        chunk_id_to_idx = {cid: idx for idx, cid in enumerate(self.chunk_ids)}
+        
+        for graph_result in graph_results:
+            chunk_id = graph_result.get("id")
+            graph_score = graph_result.get("graph_score", 0)
+            if chunk_id in chunk_id_to_idx:
+                idx = chunk_id_to_idx[chunk_id]
+                graph_scores[idx] = graph_score
+        
+        # Normalize graph scores to [0, 1]
+        if graph_scores:
+            max_graph_score = max(graph_scores.values())
+            if max_graph_score > 0:
+                graph_scores = {idx: score / max_graph_score for idx, score in graph_scores.items()}
+        
+        # Get all unique indices
+        all_indices = set(vector_scores.keys()) | set(bm25_scores.keys()) | set(graph_scores.keys())
+        
+        # Combine scores with weights
+        # Vector + BM25 = 80%, Graph = 20%
+        combined = {}
+        for idx in all_indices:
+            v_score = vector_scores.get(idx, 0)
+            b_score = bm25_scores.get(idx, 0)
+            g_score = graph_scores.get(idx, 0)
+            
+            # Hybrid score (vector + BM25)
+            hybrid_score = (
+                self.hybrid_weight * v_score +
+                (1 - self.hybrid_weight) * b_score
+            )
+            
+            # Final score: 80% hybrid + 20% graph
+            combined[idx] = 0.8 * hybrid_score + 0.2 * g_score
+        
+        # Sort and return top K
+        sorted_results = sorted(combined.items(), key=lambda x: -x[1])[:k]
+        return sorted_results
+    
     def _rerank(
         self,
         query: str,
@@ -629,8 +708,36 @@ Do not include explanations, just the expanded query."""
         # BM25 search
         bm25_results = self._bm25_search(query, k=retrieve_k, filters=filters)
         
-        # Combine scores
-        combined_results = self._combine_scores(vector_results, bm25_results, k=retrieve_k)
+        # Knowledge Graph search (entity-aware retrieval)
+        graph_results = []
+        if self.use_knowledge_graph and len(self.knowledge_graph.engineers) > 0:
+            try:
+                # Get all chunks for graph search
+                all_chunks = []
+                for idx in range(len(self.chunk_ids)):
+                    all_chunks.append({
+                        "id": self.chunk_ids[idx],
+                        "content": self.documents[idx],
+                        "engineer_username": self.metadatas[idx].get("engineer_username", ""),
+                        "project_name": self.metadatas[idx].get("project_name", ""),
+                        "project_language": self.metadatas[idx].get("project_language", ""),
+                        "project_framework": self.metadatas[idx].get("project_framework", ""),
+                        "session_id": self.metadatas[idx].get("session_id", "")
+                    })
+                
+                graph_results = self.knowledge_graph.graph_search(query, all_chunks, limit=retrieve_k)
+            except Exception as e:
+                print(f"Warning: Knowledge graph search failed: {e}")
+                graph_results = []
+        
+        # Combine scores from all methods
+        if graph_results and self.use_knowledge_graph:
+            combined_results = self._combine_scores_with_graph(
+                vector_results, bm25_results, graph_results, k=retrieve_k
+            )
+        else:
+            # Fallback to vector + BM25 only
+            combined_results = self._combine_scores(vector_results, bm25_results, k=retrieve_k)
         
         # Format candidates
         candidates = []
