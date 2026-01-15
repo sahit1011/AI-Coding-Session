@@ -147,7 +147,8 @@ Open `http://localhost:5173` in your browser.
 │   ├── enhanced/            # Enhanced search (hybrid + reranking)
 │   │   ├── __init__.py
 │   │   ├── enhanced_search.py  # Hybrid search + reranking
-│   │   └── enhanced_chunking.py  # Advanced chunking strategies
+│   │   ├── enhanced_chunking.py  # Advanced chunking strategies
+│   │   └── knowledge_graph.py  # Knowledge graph for entity-aware retrieval
 │   │
 │   ├── shared/              # Shared utilities
 │   │   ├── __init__.py
@@ -157,6 +158,15 @@ Open `http://localhost:5173` in your browser.
 │   │   ├── cache.py         # Redis caching layer
 │   │   ├── fairness.py      # Equal quota enforcement
 │   │   └── evaluation.py    # Quality metrics
+│   │
+│   ├── tests/               # Test suite
+│   │   ├── __init__.py
+│   │   ├── test_knowledge_graph.py  # KG building & visualization
+│   │   ├── test_enhanced_retrieval.py  # Step-by-step retrieval testing
+│   │   ├── test_vector_scores.py  # Basic vs Enhanced comparison
+│   │   ├── investigate_negative_scores.py  # Score debugging
+│   │   ├── knowledge_graph_visualization.png  # Full graph visualization
+│   │   └── knowledge_graph_simplified.png  # Simplified graph view
 │   │
 │   ├── main.py              # FastAPI application
 │   ├── Dockerfile           # Backend container
@@ -186,74 +196,6 @@ Open `http://localhost:5173` in your browser.
 ├── .gitignore              # Git ignore rules
 └── README.md               # This file
 ```
-
----
-
-## 🎯 Assignment Questions
-
-### What were the MVP features you decided to build? Why?
-
-**MVP Features:**
-1. **Semantic Search** - Search by meaning, not just keywords. A search for "memory optimization" can find discussions about "buffer pools".
-2. **Filter by Engineer** - Narrow results to specific team members (with equal quota for all, as per workspace rules).
-3. **Filter by Project** - Focus on specific codebases/projects.
-4. **Rich Result Display** - Show engineer, project, task context, and conversation excerpts.
-
-**Why these?**
-- Semantic search is the core value proposition - it demonstrates AI understanding and provides genuinely useful results.
-- Filters make it practical for real team use (finding what *your* teammate discussed about a specific project).
-- Rich results give context without needing to dig deeper - users can assess relevance at a glance.
-
-### What features did you deprioritize? Why?
-
-**Deprioritized:**
-1. **Full conversation view** - Clicking to see entire session. Would require additional API and routing.
-2. **Code syntax highlighting** - Nice polish but not core to finding relevant sessions.
-3. **Date range filtering** - Less common use case than engineer/project filters.
-4. **Search history** - Useful for power users but not MVP.
-5. **Export results** - Enterprise feature, not needed for MVP.
-
-**Why deprioritized?**
-- Limited time (3 hours) meant focusing on core search experience.
-- These features add complexity without fundamentally improving search quality.
-- The semantic search itself is the differentiator; polish can come later.
-
-### What trade-offs did you make?
-
-| Decision | Trade-off |
-|----------|-----------|
-| **Local embeddings** (Sentence Transformers) vs OpenAI API | Slightly lower quality but zero setup, free, works offline |
-| **In-memory ChromaDB** vs persistent storage | Faster development, but requires re-indexing on restart |
-| **Q+A pair chunking** vs smaller chunks | Larger chunks but more semantic context; better retrieval |
-| **Simple filters** vs faceted search | Easier implementation, covers 90% of use cases |
-| **React SPA** vs server-rendered | More interactive UX but requires separate frontend build |
-
-### If you had 3 more hours, what would you build next?
-
-1. **Conversation Expansion** (45 min)
-   - Click result to see full session conversation
-   - Would require session detail API and modal/page routing
-   - High value: users often want full context
-
-2. **Code Syntax Highlighting** (30 min)
-   - Detect and highlight code blocks in results
-   - Use highlight.js or Prism
-   - Improves readability significantly
-
-3. **Persistent ChromaDB Storage** (30 min)
-   - Save embeddings to disk
-   - Skip re-indexing on server restart
-   - Important for production use
-
-4. **Search Suggestions** (45 min)
-   - Auto-complete based on common queries
-   - Show popular searches
-   - Improves discoverability
-
-5. **Analytics Dashboard** (30 min)
-   - Most searched topics
-   - Most referenced engineers/projects
-   - Helps understand usage patterns
 
 ---
 
@@ -315,13 +257,14 @@ Invalidate cached search results.
 - **Best For**: Fast queries, clear semantic matches
 
 #### **Enhanced Mode** (High Quality)
-- **Chunking**: Overlapping windows (3 Q&A pairs + context)
+- **Chunking**: Overlapping windows (2 Q&A pairs + context, overlap=1)
 - **Model**: `all-mpnet-base-v2` (768-dim, better quality)
-- **Search**: Hybrid (70% vector + 30% BM25 keyword matching)
+- **Search**: Hybrid (70% vector + 30% BM25) + Knowledge Graph (20% boost)
 - **Reranking**: Cross-encoder for final ordering
 - **Query Expansion**: Groq LLM for intelligent synonym expansion
-- **Speed**: 500-1000ms per query
-- **Best For**: Complex queries, maximum quality
+- **Knowledge Graph**: Entity-aware retrieval with relationship traversal
+- **Speed**: 500-1000ms per query (50-200ms for cached)
+- **Best For**: Complex queries, maximum quality, entity-specific searches
 
 ### Semantic Search Pipeline
 
@@ -333,7 +276,7 @@ Invalidate cached search results.
 4. **Indexing**: Store embeddings in ChromaDB with metadata
 5. **Search**: 
    - Basic: Vector similarity only
-   - Enhanced: Hybrid search (BM25 + Vector) → Reranking
+   - Enhanced: Hybrid search (BM25 + Vector + Knowledge Graph) → Reranking
 6. **Post-Processing**: Fairness distribution, pagination, caching
 
 ### Why Sentence Transformers?
@@ -377,10 +320,11 @@ The sample data includes sessions from 3 engineers working at a video streaming 
 - Fast indexing and retrieval
 
 **Enhanced Mode**: Overlapping windows
-- Sliding window of 3 Q&A pairs with 1-pair overlap
+- Sliding window of 2 Q&A pairs with 1-pair overlap
 - Includes context from previous pairs
-- ~120+ chunks (more granular)
+- ~53 chunks (same count as basic, but with context)
 - Better context preservation, no boundary issues
+- Optimal balance between granularity and context
 
 **Why Q+A pairs?**
 - Semantic completeness: Question and answer together carry full meaning
@@ -392,9 +336,11 @@ The sample data includes sessions from 3 engineers working at a video streaming 
 1. **Fixed Data Chunking**: Improved message parsing to handle all assistant responses, even after tool invocations
 2. **Memory Optimization**: Embeddings stored in ChromaDB only, not duplicated in memory
 3. **Better Embedding Model**: Switched from CodeBERT to all-mpnet-base-v2 for better Q&A understanding
-4. **Fairness Enforcement**: Implements "equal quota" rule for balanced engineer representation
-5. **Security**: Query validation, XSS prevention, rate limiting
-6. **Performance**: Redis caching reduces latency by 70% for repeated queries
+4. **Embedding Normalization**: Fixed negative semantic scores by normalizing embeddings for proper cosine distance
+5. **Knowledge Graph**: Implemented entity extraction and relationship-based retrieval
+6. **Fairness Enforcement**: Implements "equal quota" rule for balanced engineer representation
+7. **Security**: Query validation, XSS prevention, rate limiting
+8. **Performance**: Redis caching reduces latency by 70% for repeated queries
 
 ### UI/UX
 
@@ -446,18 +392,48 @@ REDIS_URL=redis://redis:6379/0
 
 ## 🧪 Testing
 
-### Test Basic Mode
-```bash
-export SEARCH_MODE=basic
-cd backend && python main.py
-```
+### Test Suite
 
-### Test Enhanced Mode
+The project includes a comprehensive test suite in `backend/tests/`:
+
+#### 1. Knowledge Graph Testing
 ```bash
-export SEARCH_MODE=enhanced
-export GROQ_API_KEY=your_key_here
-cd backend && python main.py
+cd backend
+python3 tests/test_knowledge_graph.py
 ```
+- Builds knowledge graph from chunks
+- Visualizes entities and relationships
+- Shows graph statistics
+- Tests entity extraction and graph retrieval
+- Generates visualization PNGs
+
+#### 2. Enhanced Retrieval Testing
+```bash
+cd backend
+python3 tests/test_enhanced_retrieval.py "your query here"
+```
+- Shows step-by-step retrieval process
+- Displays Vector, BM25, and Graph search results
+- Shows score combination
+- Demonstrates reranking impact
+
+#### 3. Vector Score Comparison
+```bash
+cd backend
+python3 tests/test_vector_scores.py "video encoding optimization"
+```
+- Compares Basic vs Enhanced mode
+- Explains score calculations
+- Shows performance differences
+
+#### 4. Score Investigation
+```bash
+cd backend
+python3 tests/investigate_negative_scores.py
+```
+- Investigates embedding normalization
+- Tests different chunking strategies
+- Analyzes query expansion impact
 
 ### Test Queries
 - "video encoding optimization" - Should find Andrew's encoding work
@@ -472,6 +448,17 @@ cd backend && python main.py
 3. Test filters (Engineer, Project)
 4. Test pagination (change limit, use offset)
 5. Verify cache (same query twice - second should be faster)
+
+### Knowledge Graph Visualizations
+
+The test suite generates two graph visualizations:
+- **Full Graph** (`tests/knowledge_graph_visualization.png`): Complete entity-relationship graph
+- **Simplified Graph** (`tests/knowledge_graph_simplified.png`): Focus on engineers, projects, and technologies
+
+View these to understand:
+- Entity relationships (engineers → projects → technologies)
+- Concept connections
+- How graph retrieval works
 
 ## 📊 Performance Metrics
 
@@ -510,10 +497,17 @@ cd backend && python main.py
 
 ## 🚀 Future Enhancements (Post-MVP)
 
-### 1. Knowledge Graph Integration ⭐
+### 1. Enhanced Knowledge Graph ⭐ (Partially Implemented)
+
+**Current Implementation:**
+✅ Knowledge graph is **already implemented** in Enhanced Mode!
+- Extracts entities: Engineers, Projects, Technologies, Concepts
+- Builds relationships: works_on, uses, discussed, related_to
+- Provides 20% boost in hybrid search
+- Enables entity-aware retrieval
 
 **Why Knowledge Graphs?**
-A knowledge graph would significantly enhance retrieval by modeling relationships between entities:
+A knowledge graph significantly enhances retrieval by modeling relationships between entities:
 
 **Entities to Model:**
 - **Engineers** (Andrew, Daniel, Diana)
@@ -536,44 +530,41 @@ A knowledge graph would significantly enhance retrieval by modeling relationship
 4. **Query Understanding**: "Show me all discussions about technologies used in video-encoder" → Traverse graph
 5. **Recommendations**: "Similar sessions" based on graph structure, not just embeddings
 
-**Implementation Approach:**
+**Current Implementation:**
 ```python
-# Extract entities from chunks
-entities = {
-    "engineers": ["andrewwang", "daniellin", "dianalu"],
-    "projects": ["video-encoder", "video-ingester"],
-    "technologies": ["Python", "Go", "React", "S3", "WebRTC"],
-    "concepts": ["encoding", "streaming", "error handling"]
-}
+# Already implemented in enhanced/knowledge_graph.py
+from enhanced.knowledge_graph import KnowledgeGraph
 
-# Build graph (using NetworkX or Neo4j)
-graph.add_edge("andrewwang", "video-encoder", relation="works_on")
-graph.add_edge("video-encoder", "Python", relation="uses")
-graph.add_edge("andrewwang", "encoding", relation="discussed")
+kg = KnowledgeGraph()
+kg.build_from_chunks(chunks)  # Extracts entities and relationships
+results = kg.graph_search(query, chunks)  # Entity-aware retrieval
 ```
 
-**Hybrid Retrieval with KG:**
+**Hybrid Retrieval with KG (Current):**
 1. Vector search finds semantically similar chunks
-2. Knowledge graph finds related entities
-3. Combine results for better coverage
-4. Example: Query "video encoding" → Vector finds chunks + Graph finds all encoding-related discussions across projects
+2. BM25 search finds keyword matches
+3. Knowledge graph finds related entities through relationships
+4. Combine: 80% (Vector + BM25) + 20% Graph boost
+5. Rerank for final ordering
+6. Example: Query "video encoding" → Vector finds chunks + BM25 finds keywords + Graph finds all encoding-related discussions across projects
 
-**Tools to Consider:**
-- **Neo4j**: Full-featured graph database
-- **NetworkX**: Python graph library (lighter weight)
-- **LangChain Graph**: Built-in graph support
-- **SPARQL**: If using RDF/OWL
+**Current Tools:**
+- **Custom Implementation**: Lightweight entity extraction and relationship modeling
+- **Pattern Matching**: Regex-based technology and concept extraction
+- **Graph Traversal**: Multi-hop relationship finding
 
-**Trade-offs:**
-- ✅ Better relationship understanding
-- ✅ Multi-hop reasoning capabilities
-- ✅ Entity-aware search
-- ⚠️ Additional complexity
-- ⚠️ Requires entity extraction (NER)
-- ⚠️ Graph construction overhead
-- ⚠️ More storage requirements
+**Future Enhancements:**
+- **Neo4j**: Full-featured graph database for larger scale
+- **spaCy NER**: Better entity extraction with named entity recognition
+- **NetworkX**: More sophisticated graph algorithms
+- **Graph Embeddings**: Learn entity representations
 
-**Recommendation**: Start with simple entity extraction and relationship modeling, then scale to full graph if needed.
+**Current Status:**
+- ✅ Basic entity extraction (engineers, projects, technologies, concepts)
+- ✅ Relationship modeling (works_on, uses, discussed, related_to)
+- ✅ Graph-based retrieval integrated into hybrid search
+- ✅ Entity name variations handled (e.g., "Andrew Wang" → "andrewwang")
+- 🔄 Future: More sophisticated NER, graph embeddings, Neo4j integration
 
 ### 2. Conversation Context View
 
@@ -641,116 +632,55 @@ graph.add_edge("andrewwang", "encoding", relation="discussed")
 - Search history and saved searches
 - Collaborative annotations on results
 
-## 💡 Knowledge Graph Deep Dive
+## 💡 Knowledge Graph Implementation
 
-### Why Knowledge Graphs for This Use Case?
+### Current Implementation
 
-**Current Limitations:**
-- Vector search finds semantically similar text but doesn't understand relationships
-- "Andrew's video encoding work" requires filtering, not relationship traversal
-- Can't answer: "What technologies did Diana use in her React projects?"
+The knowledge graph is **fully integrated** into Enhanced Mode:
 
-**How KG Would Help:**
+**Entities Extracted:**
+- Engineers: andrewwang, daniellin, dianalu
+- Projects: video-encoder, video-ingester, stream-client-react, etc.
+- Technologies: Python, Go, React, FastAPI, S3, WebRTC, etc.
+- Concepts: encoding, streaming, error handling, optimization, etc.
 
-1. **Entity Resolution**: 
-   - "Andrew" = "andrewwang" = "Staff Backend Engineer"
-   - "S3" = "AWS S3" = "multipart upload"
-   - Normalize entities across different mentions
+**Relationships Modeled:**
+- `Engineer -[works_on]-> Project` (53 relationships)
+- `Project -[uses]-> Technology` (333 relationships)
+- `Engineer -[discussed]-> Concept` (187 relationships)
+- `Concept -[related_to]-> Concept` (58 relationships)
+- `Session -[about]-> Concept` (187 relationships)
 
-2. **Relationship Queries**:
-   ```
-   Query: "Show me all discussions about technologies used in video-encoder"
-   → Traverse: video-encoder -[uses]-> [Python, FastAPI, Celery]
-   → Find: All sessions discussing these technologies
-   → Filter: Only sessions related to video-encoder project
-   ```
+**How It Works:**
+1. **Entity Extraction**: Regex patterns + metadata extraction
+2. **Graph Building**: Automatically builds relationships from chunks
+3. **Query Processing**: Extracts entities from user queries
+4. **Graph Traversal**: Finds related entities (1-2 hop traversal)
+5. **Retrieval**: Gets chunks associated with entities
+6. **Scoring**: Boosts results with entity matches (20% of final score)
 
-3. **Concept Linking**:
-   - "memory optimization" ↔ "buffer pools" ↔ "RAM management"
-   - Graph connects related concepts even if they use different terminology
-
-4. **Temporal Relationships**:
-   - Track how discussions evolve over time
-   - "Earlier sessions discussed X, later sessions discussed Y"
-   - Identify knowledge progression
-
-### Implementation Strategy
-
-**Phase 1: Entity Extraction**
-```python
-# Extract entities from chunks
-import spacy
-nlp = spacy.load("en_core_web_sm")
-
-def extract_entities(chunk):
-    doc = nlp(chunk["content"])
-    return {
-        "engineers": [chunk["engineer_username"]],
-        "projects": [chunk["project_name"]],
-        "technologies": extract_technologies(doc),
-        "concepts": extract_concepts(doc)
-    }
+**Example Query Flow:**
+```
+Query: "video encoding optimization"
+→ Extract: concepts=["encoding", "optimization"]
+→ Traverse: encoding -[related_to]-> [streaming, compression, ...]
+→ Find chunks: All chunks discussing encoding/optimization
+→ Score: Direct matches (2.0) + Related matches (0.5)
+→ Combine: 80% (Vector+BM25) + 20% Graph
 ```
 
-**Phase 2: Graph Construction**
-```python
-import networkx as nx
+**Visualizations:**
+- Run `python3 tests/test_knowledge_graph.py` to generate graph visualizations
+- See `tests/knowledge_graph_visualization.png` for full graph
+- See `tests/knowledge_graph_simplified.png` for simplified view
 
-graph = nx.MultiDiGraph()
+### Future Enhancements
 
-# Add nodes
-graph.add_node("andrewwang", type="engineer")
-graph.add_node("video-encoder", type="project")
-graph.add_node("Python", type="technology")
-
-# Add relationships
-graph.add_edge("andrewwang", "video-encoder", relation="works_on")
-graph.add_edge("video-encoder", "Python", relation="uses")
-```
-
-**Phase 3: Hybrid Retrieval**
-```python
-def search_with_kg(query):
-    # Vector search
-    vector_results = vector_search(query)
-    
-    # Extract entities from query
-    query_entities = extract_entities(query)
-    
-    # Graph traversal
-    related_entities = graph.traverse(query_entities)
-    
-    # Find chunks related to graph entities
-    graph_results = find_chunks_by_entities(related_entities)
-    
-    # Combine and rerank
-    return combine_results(vector_results, graph_results)
-```
-
-**Phase 4: Query Understanding**
-```python
-# "What did Andrew discuss about encoding?"
-# Parse: engineer=Andrew, concept=encoding
-# Traverse: Andrew -[discussed]-> encoding
-# Retrieve: All chunks in this relationship path
-```
-
-### Tools & Libraries
-
-- **Neo4j**: Production graph database with Cypher query language
-- **NetworkX**: Python graph library (good for prototyping)
-- **LangChain Graph**: Built-in graph support for RAG
-- **spaCy**: Named Entity Recognition (NER)
-- **spaCy Transformers**: Better NER with transformer models
-
-### Expected Improvements
-
-- **+15-20% Precision**: Better entity matching
-- **+25-30% Recall**: Find related concepts through graph
-- **Better Query Understanding**: Multi-hop reasoning
-- **Richer Context**: Relationship-aware retrieval
-
-**Recommendation**: Start with simple entity extraction and relationship modeling. If the dataset grows or queries become more complex, invest in full knowledge graph infrastructure.
+- **Better NER**: Use spaCy for more accurate entity extraction
+- **Graph Embeddings**: Learn entity representations
+- **Neo4j Integration**: Scale to larger graphs
+- **Multi-hop Reasoning**: Deeper relationship traversal
+- **Temporal Relationships**: Track concept evolution over time
 
 ## 📝 License
 
